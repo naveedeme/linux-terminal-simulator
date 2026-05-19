@@ -1032,14 +1032,13 @@ function loadState() {
 // ── Welcome ───────────────────────────────────────────────────────────────────
 function showWelcome() {
   const th = THEMES[currentTheme];
-  appendHTML(`<span style="color:${th.prompt}">
+appendHTML(`<pre style="color:${th.prompt};font-family:'Courier New',monospace;line-height:1.2;margin:0;letter-spacing:0;">\
   ██╗     ██╗███╗   ██╗██╗   ██╗██╗  ██╗
   ██║     ██║████╗  ██║██║   ██║╚██╗██╔╝
   ██║     ██║██╔██╗ ██║██║   ██║ ╚███╔╝
   ██║     ██║██║╚██╗██║██║   ██║ ██╔██╗
   ███████╗██║██║ ╚████║╚██████╔╝██╔╝ ██╗
-  ╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝
-</span>`);
+  ╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝</pre>`);
   appendLine('Linux Terminal Simulator v2.0  |  Ubuntu 22.04.3 LTS (Jammy Jellyfish)', 'info');
   appendLine('Kernel 5.15.0-91-generic  |  bash 5.2.15  |  Type \'help\' for commands', 'dim');
   appendLine('');
