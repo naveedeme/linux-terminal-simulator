@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#0a0a0a"/>
+  <rect x="40" y="40" width="432" height="432" rx="60" fill="#111111"/>
+  <!-- Traffic light dots -->
+  <circle cx="90" cy="90" r="18" fill="#ff5f57"/>
+  <circle cx="145" cy="90" r="18" fill="#febc2e"/>
+  <circle cx="200" cy="90" r="18" fill="#28c840"/>
+  <!-- Terminal divider line -->
+  <rect x="40" y="120" width="432" height="3" fill="#1a1a1a"/>
+  <!-- Prompt line 1: user@host:~$ -->
+  <text x="60" y="185" font-family="monospace" font-size="36" fill="#00ff41">user@linux:~$</text>
+  <!-- Prompt line 2: ls -la -->
+  <text x="60" y="240" font-family="monospace" font-size="36" fill="#00ff41">ls -la</text>
+  <!-- Output lines -->
+  <text x="60" y="295" font-family="monospace" font-size="28" fill="#4fc3f7">drwxr-xr-x  projects/</text>
+  <text x="60" y="340" font-family="monospace" font-size="28" fill="#aaaaaa">-rw-r--r--  readme.txt</text>
+  <text x="60" y="385" font-family="monospace" font-size="28" fill="#50fa7b">-rwxr-xr-x  script.sh</text>
+  <!-- Blinking cursor block -->
+  <rect x="60" y="420" width="22" height="36" fill="#00ff41" opacity="0.9"/>
+</svg>

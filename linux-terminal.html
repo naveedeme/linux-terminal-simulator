@@ -1,0 +1,1094 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Linux Terminal Simulator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0a0a0a; }
+  body { color: #00ff41; font-family: 'Courier New', 'Lucida Console', monospace; font-size: 13px; display: flex; flex-direction: column; overflow: hidden; }
+  #topbar { background: #111; border-bottom: 1px solid #1a1a1a; padding: 6px 12px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  #topbar-left { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-r { background: #ff5f57; } .dot-y { background: #febc2e; } .dot-g { background: #28c840; }
+  #topbar-title { color: #888; font-size: 11px; letter-spacing: 1px; }
+  #topbar-right { display: flex; gap: 8px; align-items: center; }
+  .btn-sm { background: none; border: 1px solid #333; color: #888; padding: 2px 8px; border-radius: 3px; font-size: 10px; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn-sm:hover { border-color: #00ff41; color: #00ff41; }
+  .btn-sm.active { border-color: #00ff41; color: #00ff41; background: #001a00; }
+  #theme-amber { color: #ffb000; border-color: #554000; }
+  #theme-amber:hover, #theme-amber.active { color: #ffb000; border-color: #ffb000; background: #1a0e00; }
+  #theme-white { color: #ccc; border-color: #444; }
+  #theme-white:hover, #theme-white.active { color: #fff; border-color: #fff; background: #1a1a1a; }
+  #theme-blue { color: #4fc3f7; border-color: #1a3a4a; }
+  #theme-blue:hover, #theme-blue.active { color: #4fc3f7; border-color: #4fc3f7; background: #001a2a; }
+  #terminal-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #output { flex: 1; overflow-y: auto; padding: 10px 14px 4px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
+  #output::-webkit-scrollbar { width: 6px; }
+  #output::-webkit-scrollbar-track { background: #0a0a0a; }
+  #output::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  .line { display: block; }
+  .err { color: #ff5555; }
+  .info { color: #4fc3f7; }
+  .warn { color: #ffb000; }
+  .success { color: #50fa7b; }
+  .dim { color: #555; }
+  #input-row { display: flex; align-items: center; padding: 6px 14px 10px; border-top: 1px solid #111; background: #0a0a0a; flex-shrink: 0; }
+  #prompt-display { white-space: nowrap; margin-right: 6px; flex-shrink: 0; }
+  #suggestion-overlay { position: relative; flex: 1; display: flex; align-items: center; }
+  #cmd-input { background: none; border: none; outline: none; color: inherit; font-family: inherit; font-size: inherit; flex: 1; position: relative; z-index: 2; width: 100%; }
+  #suggest-text { position: absolute; left: 0; top: 0; color: #333; pointer-events: none; white-space: pre; z-index: 1; line-height: 1.4; }
+  #help-panel { background: #0d0d0d; border-top: 1px solid #1a1a1a; padding: 6px 14px; font-size: 11px; color: #555; flex-shrink: 0; }
+  .ls-grid { display: inline-flex; flex-wrap: wrap; gap: 0 24px; }
+  #mobile-keys { display: none; }
+  @media (max-width: 600px) {
+    body { font-size: 12px; }
+    #mobile-keys { display: flex; gap: 6px; padding: 6px 10px; background: #111; border-top: 1px solid #1a1a1a; flex-shrink: 0; overflow-x: auto; }
+    .mkey { background: #1a1a1a; border: 1px solid #333; color: #888; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; font-family: inherit; }
+    .mkey:active { background: #002200; color: #00ff41; }
+  }
+</style>
+</head>
+<body>
+<div id="topbar">
+  <div id="topbar-left">
+    <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+    <span id="topbar-title">TERMINAL — bash 5.2.15</span>
+  </div>
+  <div id="topbar-right">
+    <button class="btn-sm active" id="theme-green" onclick="setTheme('green')">Green</button>
+    <button class="btn-sm" id="theme-amber" onclick="setTheme('amber')">Amber</button>
+    <button class="btn-sm" id="theme-white" onclick="setTheme('white')">White</button>
+    <button class="btn-sm" id="theme-blue" onclick="setTheme('blue')">Blue</button>
+    <button class="btn-sm" id="btn-help-toggle" onclick="toggleHelp()">? Help</button>
+  </div>
+</div>
+<div id="terminal-wrapper">
+  <div id="output"></div>
+  <div id="input-row">
+    <span id="prompt-display"></span>
+    <div id="suggestion-overlay">
+      <span id="suggest-text"></span>
+      <input id="cmd-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="Terminal input">
+    </div>
+  </div>
+  <div id="help-panel">Type <span id="help-highlight">help</span> for commands · Tab: autocomplete · ↑↓: history · Ctrl+C: cancel · Ctrl+L: clear · Ctrl+D: logout</div>
+  <div id="mobile-keys">
+    <button class="mkey" onclick="insertKey('Tab')">Tab</button>
+    <button class="mkey" onclick="insertKey('ArrowUp')">↑</button>
+    <button class="mkey" onclick="insertKey('ArrowDown')">↓</button>
+    <button class="mkey" onclick="insertKey('Ctrl+C')">Ctrl+C</button>
+    <button class="mkey" onclick="insertKey('Ctrl+L')">Ctrl+L</button>
+    <button class="mkey" onclick="insertKey('~')">~</button>
+    <button class="mkey" onclick="insertKey('/')">/ </button>
+    <button class="mkey" onclick="insertKey('|')">|</button>
+    <button class="mkey" onclick="insertKey('>')">></button>
+  </div>
+</div>
+
+<script>
+const THEMES = {
+  green: { fg: '#00ff41', prompt: '#00ff41', dim: '#555', cursor: '#00ff41', bg: '#0a0a0a', dir: '#4fc3f7', helpbg: '#0d0d0d' },
+  amber: { fg: '#ffb000', prompt: '#ffb000', dim: '#553300', cursor: '#ffb000', bg: '#0a0600', dir: '#ff8800', helpbg: '#0a0800' },
+  white: { fg: '#d4d4d4', prompt: '#ffffff', dim: '#444', cursor: '#d4d4d4', bg: '#0d0d0d', dir: '#87ceeb', helpbg: '#111' },
+  blue:  { fg: '#4fc3f7', prompt: '#4fc3f7', dim: '#1a3a4a', cursor: '#4fc3f7', bg: '#020d14', dir: '#81d4fa', helpbg: '#021018' }
+};
+
+let currentTheme = 'green';
+function setTheme(t) {
+  currentTheme = t;
+  const th = THEMES[t];
+  document.body.style.color = th.fg;
+  document.body.style.background = th.bg;
+  document.getElementById('cmd-input').style.color = th.fg;
+  document.getElementById('cmd-input').style.caretColor = th.cursor;
+  document.getElementById('suggest-text').style.color = th.dim;
+  document.getElementById('help-panel').style.background = th.helpbg;
+  document.getElementById('help-highlight').style.color = th.prompt;
+  document.querySelectorAll('.btn-sm').forEach(b => b.classList.remove('active'));
+  document.getElementById('theme-'+t).classList.add('active');
+  updatePrompt();
+  localStorage.setItem('term_theme', t);
+}
+
+// ── Virtual File System ──────────────────────────────────────────────────────
+const FS = {
+  '/': { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+    home: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+      user: { type: 'dir', perm: 'drwxr-xr-x', owner: 'user', children: {
+        'readme.txt': { type: 'file', perm: '-rw-r--r--', owner: 'user', content: 'Welcome to Linux Terminal Simulator!\nType "help" to see available commands.\n\nEnjoy exploring the virtual filesystem!', size: 87, mtime: 'May 10 09:00' },
+        'notes.txt': { type: 'file', perm: '-rw-r--r--', owner: 'user', content: 'TODO:\n- Learn bash scripting\n- Practice grep and awk\n- Explore /proc filesystem', size: 61, mtime: 'May 12 14:22' },
+        '.bashrc': { type: 'file', perm: '-rw-r--r--', owner: 'user', content: '# ~/.bashrc\nexport PS1="\\u@\\h:\\w$ "\nexport PATH=$PATH:/usr/local/bin\nalias ll="ls -la"\nalias la="ls -A"\nalias grep="grep --color=auto"', size: 124, mtime: 'May 1 08:00' },
+        '.bash_history': { type: 'file', perm: '-rw-------', owner: 'user', content: 'ls\npwd\ncd /etc\ncat /etc/os-release\nuname -a', size: 42, mtime: 'May 15 23:10' },
+        projects: { type: 'dir', perm: 'drwxr-xr-x', owner: 'user', children: {
+          'hello.py': { type: 'file', perm: '-rw-r--r--', owner: 'user', content: '#!/usr/bin/env python3\nprint("Hello, World!")', size: 44, mtime: 'May 8 11:00' },
+          'script.sh': { type: 'file', perm: '-rwxr-xr-x', owner: 'user', content: '#!/bin/bash\necho "Running script..."\nfor i in {1..5}; do echo "Step $i"; done', size: 72, mtime: 'May 9 15:30' }
+        }}
+      }}
+    }},
+    etc: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+      hosts: { type: 'file', perm: '-rw-r--r--', owner: 'root', content: '127.0.0.1\tlocalhost\n127.0.1.1\tlinux-sim\n::1\tlocalhost ip6-localhost', size: 76, mtime: 'Jan 1 00:00' },
+      passwd: { type: 'file', perm: '-rw-r--r--', owner: 'root', content: 'root:x:0:0:root:/root:/bin/bash\nuser:x:1000:1000:User:/home/user:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin', size: 115, mtime: 'Jan 1 00:00' },
+      fstab: { type: 'file', perm: '-rw-r--r--', owner: 'root', content: '/dev/sda1\t/\text4\terrors=remount-ro\t0 1\n/dev/sda2\tswap\tswap\tdefaults\t0 0\ntmpfs\t/tmp\ttmpfs\tdefaults\t0 0', size: 110, mtime: 'Jan 1 00:00' },
+      'os-release': { type: 'file', perm: '-rw-r--r--', owner: 'root', content: 'NAME="Ubuntu"\nVERSION="22.04.3 LTS (Jammy Jellyfish)"\nID=ubuntu\nID_LIKE=debian\nHOME_URL="https://www.ubuntu.com/"', size: 110, mtime: 'Jan 1 00:00' },
+      hostname: { type: 'file', perm: '-rw-r--r--', owner: 'root', content: 'linux-sim', size: 9, mtime: 'Jan 1 00:00' },
+      'resolv.conf': { type: 'file', perm: '-rw-r--r--', owner: 'root', content: 'nameserver 8.8.8.8\nnameserver 8.8.4.4\nsearch local', size: 50, mtime: 'Jan 1 00:00' }
+    }},
+    var: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+      log: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+        syslog: { type: 'file', perm: '-rw-r-----', owner: 'syslog', content: 'May 16 00:00:01 linux-sim kernel: Linux version 5.15.0\nMay 16 00:00:02 linux-sim systemd[1]: Starting Linux Terminal Simulator\nMay 16 00:00:03 linux-sim sshd[420]: Server listening on 0.0.0.0 port 22', size: 200, mtime: 'May 16 00:01' },
+        'auth.log': { type: 'file', perm: '-rw-r-----', owner: 'syslog', content: 'May 16 09:00:01 linux-sim login[1234]: session opened for user user\nMay 16 09:00:05 linux-sim sudo[1235]: user : TTY=tty1 ; COMMAND=/bin/bash', size: 150, mtime: 'May 16 09:00' }
+      }},
+      tmp: { type: 'dir', perm: 'drwxrwxrwt', owner: 'root', children: {} }
+    }},
+    tmp: { type: 'dir', perm: 'drwxrwxrwt', owner: 'root', children: {} },
+    usr: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+      bin: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+        bash: { type: 'file', perm: '-rwxr-xr-x', owner: 'root', content: 'ELF binary', size: 1183448, mtime: 'Jan 1 00:00' },
+        ls: { type: 'file', perm: '-rwxr-xr-x', owner: 'root', content: 'ELF binary', size: 142088, mtime: 'Jan 1 00:00' },
+        grep: { type: 'file', perm: '-rwxr-xr-x', owner: 'root', content: 'ELF binary', size: 219456, mtime: 'Jan 1 00:00' },
+        python3: { type: 'file', perm: '-rwxr-xr-x', owner: 'root', content: 'ELF binary', size: 5632000, mtime: 'Jan 1 00:00' },
+        nano: { type: 'file', perm: '-rwxr-xr-x', owner: 'root', content: 'ELF binary', size: 266240, mtime: 'Jan 1 00:00' }
+      }},
+      local: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: { bin: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} } } }
+    }},
+    proc: { type: 'dir', perm: 'dr-xr-xr-x', owner: 'root', children: {
+      version: { type: 'file', perm: '-r--r--r--', owner: 'root', content: 'Linux version 5.15.0-91-generic (gcc 11.4.0) #101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023', size: 90, mtime: '' },
+      cpuinfo: { type: 'file', perm: '-r--r--r--', owner: 'root', content: 'processor\t: 0\nvendor_id\t: GenuineIntel\nmodel name\t: Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz\ncpu MHz\t\t: 2600.000\ncache size\t: 12288 KB', size: 140, mtime: '' },
+      meminfo: { type: 'file', perm: '-r--r--r--', owner: 'root', content: 'MemTotal:\t    8192000 kB\nMemFree:\t    2048000 kB\nMemAvailable:\t4096000 kB\nSwapTotal:\t    2097152 kB\nSwapFree:\t    2097152 kB', size: 125, mtime: '' }
+    }},
+    dev: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {
+      null: { type: 'file', perm: 'crw-rw-rw-', owner: 'root', content: '', size: 0, mtime: 'Jan 1' },
+      zero: { type: 'file', perm: 'crw-rw-rw-', owner: 'root', content: '', size: 0, mtime: 'Jan 1' }
+    }},
+    bin: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} },
+    sbin: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} },
+    lib: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} },
+    root: { type: 'dir', perm: 'drwx------', owner: 'root', children: {} },
+    boot: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: { vmlinuz: { type: 'file', perm: '-rw-r--r--', owner: 'root', content: 'kernel', size: 9462272, mtime: 'Nov 14 2023' } } },
+    opt: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} },
+    mnt: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} },
+    media: { type: 'dir', perm: 'drwxr-xr-x', owner: 'root', children: {} }
+  }}
+};
+
+// ── State ────────────────────────────────────────────────────────────────────
+let cwd = '/home/user';
+let user = 'user';
+let hostname = 'linux-sim';
+let history = [];
+let histIdx = -1;
+let envVars = { HOME: '/home/user', USER: 'user', SHELL: '/bin/bash', PATH: '/usr/local/bin:/usr/bin:/bin:/sbin', TERM: 'xterm-256color', LANG: 'en_US.UTF-8' };
+let aliases = { ll: 'ls -la', la: 'ls -A', grep: 'grep --color=auto' };
+let installedPkgs = ['bash', 'coreutils', 'grep', 'sed', 'awk', 'python3', 'curl', 'nano'];
+let helpVisible = true;
+
+const ALL_CMDS = ['ls','cd','pwd','cat','echo','mkdir','rmdir','touch','rm','cp','mv','find','tree','head','tail','less','grep','wc','sort','uniq','cut','sed','awk','chmod','chown','umask','ps','top','kill','df','du','free','uname','whoami','hostname','uptime','date','cal','ping','ifconfig','ip','netstat','curl','wget','man','help','clear','history','export','unset','env','alias','unalias','apt','which','whereis','file','stat','ln','tar','gzip','gunzip','diff','nano','vim','exit','logout','sudo','su','passwd','id','groups','w','who','last','jobs','tee','xargs','tr','yes','seq','printf','test','true','false','sleep','expr','bc','base64','md5sum','sha256sum','xxd','strings','lsof','fortune','sl','cmatrix','cowsay','banner','figlet'];
+
+// ── Path Utilities ───────────────────────────────────────────────────────────
+function resolvePath(p) {
+  if (!p || p === '~') return envVars.HOME;
+  if (p.startsWith('~/')) p = envVars.HOME + p.slice(1);
+  if (!p.startsWith('/')) p = cwd + '/' + p;
+  const parts = p.split('/').filter(x => x);
+  const stack = [];
+  for (const part of parts) {
+    if (part === '..') stack.pop();
+    else if (part !== '.') stack.push(part);
+  }
+  return '/' + stack.join('/');
+}
+
+function getNode(path) {
+  if (path === '/') return FS['/'];
+  const parts = path.split('/').filter(x => x);
+  let node = FS['/'];
+  for (const part of parts) {
+    if (!node || node.type !== 'dir' || !node.children[part]) return null;
+    node = node.children[part];
+  }
+  return node;
+}
+
+function getParentAndName(path) {
+  const parts = path.split('/').filter(x => x);
+  const name = parts.pop();
+  const parentPath = '/' + parts.join('/');
+  const parent = getNode(parentPath || '/');
+  return { parent, name, parentPath: parentPath || '/' };
+}
+
+function fmtSize(n) {
+  if (n < 1024) return n + 'B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + 'K';
+  return (n / 1048576).toFixed(1) + 'M';
+}
+
+function fmtDate() {
+  const d = new Date();
+  return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+// ── Output Helpers ───────────────────────────────────────────────────────────
+function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function appendLine(text, cls) {
+  const out = document.getElementById('output');
+  const line = document.createElement('span');
+  line.className = 'line' + (cls ? ' ' + cls : '');
+  line.innerHTML = text + '\n';
+  out.appendChild(line);
+  out.scrollTop = out.scrollHeight;
+}
+
+function appendHTML(html) {
+  const out = document.getElementById('output');
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  out.appendChild(d);
+  out.scrollTop = out.scrollHeight;
+}
+
+function appendPromptLine(cmd) {
+  const display = cwd.startsWith(envVars.HOME) ? '~' + cwd.slice(envVars.HOME.length) : cwd;
+  const th = THEMES[currentTheme];
+  appendHTML(`<span style="color:${th.prompt}">${escH(user)}@${escH(hostname)}:<span style="color:${th.dir}">${escH(display)}</span>$</span> <span>${escH(cmd)}</span>`);
+}
+
+function lsColorEntry(name, node) {
+  const th = THEMES[currentTheme];
+  if (node.type === 'dir') return `<span style="color:${th.dir};font-weight:bold">${escH(name)}</span>`;
+  if (node.perm && node.perm.includes('x') && !name.endsWith('.txt')) return `<span style="color:#50fa7b">${escH(name)}</span>`;
+  if (name.startsWith('.')) return `<span style="color:#777">${escH(name)}</span>`;
+  return escH(name);
+}
+
+function lsLong(name, node, flags) {
+  const sz = node.size || 0;
+  const disp = flags.includes('h') ? fmtSize(sz) : String(sz);
+  return `${node.perm || '-rw-r--r--'} 1 ${node.owner || 'user'} ${node.owner || 'user'} ${disp.padStart(8)} ${node.mtime || fmtDate()} ${name}${node.type === 'dir' ? '/' : ''}`;
+}
+
+// ── Prompt ───────────────────────────────────────────────────────────────────
+function updatePrompt() {
+  const display = cwd.startsWith(envVars.HOME) ? '~' + cwd.slice(envVars.HOME.length) : cwd;
+  const th = THEMES[currentTheme];
+  document.getElementById('prompt-display').innerHTML =
+    `<span style="color:${th.prompt}">${escH(user)}@${escH(hostname)}:</span><span style="color:${th.dir}">${escH(display)}</span><span style="color:${th.prompt}">$</span>`;
+}
+
+// ── Tokenizer / Glob / Vars ──────────────────────────────────────────────────
+function tokenize(cmd) {
+  const parts = []; let cur = ''; let inQ = false; let qc = '';
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    if (inQ) { if (c === qc) inQ = false; else cur += c; }
+    else if (c === '"' || c === "'") { inQ = true; qc = c; }
+    else if (c === ' ') { if (cur) { parts.push(cur); cur = ''; } }
+    else cur += c;
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
+function expandVars(s) {
+  return s.replace(/\$(\w+)|\${(\w+)}/g, (m, k1, k2) => envVars[k1 || k2] || m);
+}
+
+function globExpand(pattern) {
+  if (!pattern.includes('*') && !pattern.includes('?')) return [pattern];
+  const dir = pattern.includes('/') ? resolvePath(pattern.substring(0, pattern.lastIndexOf('/'))) : cwd;
+  const pat = pattern.includes('/') ? pattern.substring(pattern.lastIndexOf('/') + 1) : pattern;
+  const node = getNode(dir);
+  if (!node || node.type !== 'dir') return [pattern];
+  const re = new RegExp('^' + pat.replace(/\*/g, '.*').replace(/\?/g, '.') + '$');
+  const matches = Object.keys(node.children).filter(n => re.test(n)).map(n => dir === '/' ? '/' + n : dir + '/' + n);
+  return matches.length ? matches : [pattern];
+}
+
+// ── Redirect / Pipe ───────────────────────────────────────────────────────────
+function parseRedirect(cmd) {
+  const am = cmd.match(/^(.*?)\s*>>\s*(\S+)\s*$/);
+  if (am) return { cmd: am[1].trim(), out: am[2], append: true };
+  const om = cmd.match(/^(.*?)\s*>\s*(\S+)\s*$/);
+  if (om) return { cmd: om[1].trim(), out: om[2], append: false };
+  return { cmd };
+}
+
+function runPipe(cmdStr) {
+  const segments = cmdStr.split('|').map(s => s.trim());
+  let buf = null;
+  for (const seg of segments) {
+    const parts = tokenize(seg);
+    if (!parts.length) continue;
+    const cmd = parts[0]; const args = parts.slice(1);
+    if (buf !== null) args.push('__PIPE__:' + buf);
+    const res = execCmd(cmd, args);
+    buf = (res !== null && res !== undefined) ? res : '';
+  }
+  if (buf !== null && buf !== '') buf.split('\n').forEach(l => appendLine(escH(l)));
+}
+
+// ── Main Command Runner ──────────────────────────────────────────────────────
+function runCommand(raw) {
+  appendPromptLine(raw);
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+
+  if (history[history.length - 1] !== trimmed) history.push(trimmed);
+  histIdx = history.length;
+  saveState();
+
+  if (trimmed === '!!') {
+    const prev = history[history.length - 2];
+    if (prev) { runCommand(prev); return; }
+    appendLine('bash: !!: event not found', 'err'); return;
+  }
+
+  let expanded = trimmed;
+  for (const [a, v] of Object.entries(aliases)) {
+    if (expanded === a || expanded.startsWith(a + ' ')) {
+      expanded = v + expanded.slice(a.length); break;
+    }
+  }
+
+  if (expanded.includes('|')) { runPipe(expanded); return; }
+
+  const redirect = parseRedirect(expanded);
+  const parts = tokenize(redirect.cmd);
+  if (!parts.length) return;
+
+  const result = execCmd(parts[0], parts.slice(1));
+
+  if (redirect.out) {
+    const rpath = resolvePath(redirect.out);
+    const { parent, name } = getParentAndName(rpath);
+    if (parent) {
+      const existing = redirect.append ? ((parent.children[name] || {}).content || '') : '';
+      const content = existing + (result || '');
+      parent.children[name] = { type: 'file', perm: '-rw-r--r--', owner: user, content, size: content.length, mtime: fmtDate() };
+    }
+  } else if (result !== null && result !== undefined && result !== '') {
+    result.split('\n').forEach(l => appendLine(escH(l)));
+  }
+}
+
+// ── Command Executor ─────────────────────────────────────────────────────────
+function execCmd(cmd, args) {
+  args = args || [];
+  const pipeData = args.find(a => a.startsWith('__PIPE__:'));
+  const pipeIn = pipeData ? pipeData.slice(9) : null;
+  const cleanArgs = args.filter(a => !a.startsWith('__PIPE__:'));
+
+  switch (cmd) {
+    case 'pwd': return cwd;
+    case 'whoami': return user;
+    case 'hostname': return hostname;
+    case 'id': return `uid=1000(${user}) gid=1000(${user}) groups=1000(${user}),4(adm),27(sudo),46(plugdev)`;
+    case 'groups': return `${user} adm cdrom sudo dip plugdev`;
+    case 'exit': case 'logout': setTimeout(showLogout, 100); return null;
+    case 'clear': document.getElementById('output').innerHTML = ''; return null;
+
+    case 'echo': return expandVars(cleanArgs.join(' ')).replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    case 'printf': return expandVars(cleanArgs.join(' ')).replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+    case 'date': return new Date().toString();
+    case 'uptime': {
+      const u = Math.floor(performance.now() / 1000);
+      return ` ${new Date().toTimeString().slice(0,5)} up ${Math.floor(u/3600)}h ${Math.floor((u%3600)/60)}m, 1 user, load average: 0.15, 0.12, 0.10`;
+    }
+    case 'uname': {
+      if (cleanArgs.includes('-a')) return 'Linux linux-sim 5.15.0-91-generic #101-Ubuntu SMP Tue Nov 14 13:30:08 UTC 2023 x86_64 GNU/Linux';
+      if (cleanArgs.includes('-r')) return '5.15.0-91-generic';
+      if (cleanArgs.includes('-s')) return 'Linux';
+      if (cleanArgs.includes('-n')) return hostname;
+      return 'Linux';
+    }
+
+    case 'cd': {
+      const target = cleanArgs[0] || envVars.HOME;
+      const p = resolvePath(target === '-' ? (envVars.OLDPWD || cwd) : target);
+      const node = getNode(p);
+      if (!node) return `bash: cd: ${target}: No such file or directory`;
+      if (node.type !== 'dir') return `bash: cd: ${target}: Not a directory`;
+      envVars.OLDPWD = cwd; cwd = p; updatePrompt(); return null;
+    }
+
+    case 'ls': {
+      let flags = ''; let paths = [];
+      for (const a of cleanArgs) { if (a.startsWith('-')) flags += a.slice(1); else paths.push(a); }
+      if (!paths.length) paths = [cwd];
+      const results = [];
+      for (const p of paths) {
+        const rp = resolvePath(p);
+        const node = getNode(rp);
+        if (!node) { results.push(`ls: cannot access '${p}': No such file or directory`); continue; }
+        if (node.type === 'file') { results.push(lsLong(p.split('/').pop(), node, flags)); continue; }
+        let entries = Object.entries(node.children);
+        if (!flags.includes('a')) entries = entries.filter(([n]) => !n.startsWith('.'));
+        entries.sort(([a], [b]) => a.localeCompare(b));
+        if (flags.includes('l')) {
+          const header = flags.includes('a') ? `total ${entries.length}\ndrwxr-xr-x 2 ${user} ${user} 4096 ${fmtDate()} .\ndrwxr-xr-x 2 ${user} ${user} 4096 ${fmtDate()} ..\n` : '';
+          results.push(header + entries.map(([n, v]) => lsLong(n, v, flags)).join('\n'));
+        } else {
+          appendHTML('<div class="ls-grid">' + entries.map(([n, v]) => '<span>' + lsColorEntry(n, v) + '</span>').join('  ') + '</div>');
+          results.push(null);
+        }
+      }
+      return results.filter(x => x !== null).join('\n') || null;
+    }
+
+    case 'cat': {
+      if (pipeIn !== null) return pipeIn;
+      if (!cleanArgs.length) return 'Usage: cat [file]...';
+      return cleanArgs.flatMap(a => globExpand(a)).map(g => {
+        const node = getNode(resolvePath(g));
+        if (!node) return `cat: ${g}: No such file or directory`;
+        if (node.type === 'dir') return `cat: ${g}: Is a directory`;
+        return node.content || '';
+      }).join('\n');
+    }
+
+    case 'mkdir': {
+      const pFlag = cleanArgs.includes('-p');
+      cleanArgs.filter(a => !a.startsWith('-')).forEach(d => {
+        const rp = resolvePath(d);
+        const { parent, name } = getParentAndName(rp);
+        if (!parent) { appendLine(`mkdir: cannot create directory '${d}': No such file or directory`, 'err'); return; }
+        if (parent.children[name] && !pFlag) { appendLine(`mkdir: cannot create directory '${d}': File exists`, 'err'); return; }
+        if (!parent.children[name]) parent.children[name] = { type: 'dir', perm: 'drwxr-xr-x', owner: user, children: {} };
+      });
+      return null;
+    }
+
+    case 'rmdir': {
+      for (const d of cleanArgs) {
+        const rp = resolvePath(d); const node = getNode(rp);
+        if (!node) return `rmdir: failed to remove '${d}': No such file or directory`;
+        if (node.type !== 'dir') return `rmdir: failed to remove '${d}': Not a directory`;
+        if (Object.keys(node.children).length) return `rmdir: failed to remove '${d}': Directory not empty`;
+        const { parent, name } = getParentAndName(rp); delete parent.children[name];
+      }
+      return null;
+    }
+
+    case 'touch': {
+      for (const f of cleanArgs) {
+        const rp = resolvePath(f); const { parent, name } = getParentAndName(rp);
+        if (!parent) return `touch: cannot touch '${f}': No such file or directory`;
+        if (!parent.children[name]) parent.children[name] = { type: 'file', perm: '-rw-r--r--', owner: user, content: '', size: 0, mtime: fmtDate() };
+        else parent.children[name].mtime = fmtDate();
+      }
+      return null;
+    }
+
+    case 'rm': {
+      const rf = cleanArgs.some(a => a.startsWith('-') && (a.includes('r') || a.includes('f')));
+      const ff = cleanArgs.some(a => a.startsWith('-') && a.includes('f'));
+      cleanArgs.filter(a => !a.startsWith('-')).flatMap(a => globExpand(a)).forEach(f => {
+        const rp = resolvePath(f); const node = getNode(rp);
+        if (!node) { if (!ff) appendLine(`rm: cannot remove '${f}': No such file or directory`, 'err'); return; }
+        if (node.type === 'dir' && !rf) { appendLine(`rm: cannot remove '${f}': Is a directory (use -rf)`, 'err'); return; }
+        const { parent, name } = getParentAndName(rp); delete parent.children[name];
+      });
+      return null;
+    }
+
+    case 'cp': {
+      if (cleanArgs.length < 2) return 'cp: missing destination file operand';
+      const files = cleanArgs.filter(a => !a.startsWith('-'));
+      const dst = resolvePath(files[files.length - 1]);
+      const dstNode = getNode(dst);
+      files.slice(0, -1).forEach(s => {
+        const src = resolvePath(s); const srcNode = getNode(src);
+        if (!srcNode) { appendLine(`cp: ${s}: No such file or directory`, 'err'); return; }
+        const destDir = dstNode && dstNode.type === 'dir' ? dstNode : getNode(dst.substring(0, dst.lastIndexOf('/')));
+        const destName = dstNode && dstNode.type === 'dir' ? src.split('/').pop() : dst.split('/').pop();
+        if (!destDir) { appendLine(`cp: ${files[files.length-1]}: No such file or directory`, 'err'); return; }
+        destDir.children[destName] = JSON.parse(JSON.stringify(srcNode));
+      });
+      return null;
+    }
+
+    case 'mv': {
+      if (cleanArgs.length < 2) return 'mv: missing destination file operand';
+      const src = resolvePath(cleanArgs[0]); const dst = resolvePath(cleanArgs[1]);
+      const srcNode = getNode(src);
+      if (!srcNode) return `mv: ${cleanArgs[0]}: No such file or directory`;
+      const { parent: sp, name: sn } = getParentAndName(src);
+      const dstNode = getNode(dst);
+      const { parent: dp, name: dn } = getParentAndName(dst);
+      const finalParent = dstNode && dstNode.type === 'dir' ? dstNode : dp;
+      const finalName = dstNode && dstNode.type === 'dir' ? sn : dn;
+      if (!finalParent) return `mv: ${cleanArgs[1]}: No such file or directory`;
+      finalParent.children[finalName] = srcNode; delete sp.children[sn];
+      return null;
+    }
+
+    case 'find': {
+      const startP = cleanArgs.find(a => !a.startsWith('-')) || cwd;
+      const ni = cleanArgs.indexOf('-name'); const pattern = ni >= 0 ? cleanArgs[ni + 1] : null;
+      const ti = cleanArgs.indexOf('-type'); const typeF = ti >= 0 ? cleanArgs[ti + 1] : null;
+      const results = [];
+      function walk(p, node) {
+        if (!node) return;
+        const name = p.split('/').pop() || '/';
+        const mn = !pattern || new RegExp('^' + pattern.replace(/\*/g,'.*').replace(/\?/g,'.') + '$').test(name);
+        const mt = !typeF || (typeF==='d'&&node.type==='dir') || (typeF==='f'&&node.type==='file');
+        if (mn && mt) results.push(p);
+        if (node.type === 'dir') Object.entries(node.children||{}).forEach(([n,v]) => walk(p+(p==='/'?'':'/')+n, v));
+      }
+      walk(resolvePath(startP), getNode(resolvePath(startP)));
+      return results.join('\n');
+    }
+
+    case 'tree': {
+      const p = resolvePath(cleanArgs[0] || cwd);
+      const node = getNode(p);
+      if (!node || node.type !== 'dir') return `tree: ${cleanArgs[0]||cwd}: Not a directory`;
+      const lines = [p]; let dc = 0, fc = 0;
+      function wt(n, prefix) {
+        const ents = Object.entries(n.children || {}).sort(([a],[b]) => a.localeCompare(b));
+        ents.forEach(([name, child], i) => {
+          const last = i === ents.length - 1;
+          if (child.type === 'dir') { lines.push(prefix+(last?'└── ':'├── ')+name+'/'); dc++; wt(child, prefix+(last?'    ':'│   ')); }
+          else { lines.push(prefix+(last?'└── ':'├── ')+name); fc++; }
+        });
+      }
+      wt(node, '');
+      lines.push(`\n${dc} directories, ${fc} files`);
+      return lines.join('\n');
+    }
+
+    case 'grep': {
+      if (!cleanArgs.length) return 'Usage: grep pattern [file]';
+      const pat = cleanArgs[0];
+      const iF = cleanArgs.includes('-i'), vF = cleanArgs.includes('-v'), nF = cleanArgs.includes('-n');
+      const fileArgs = cleanArgs.filter(a => !a.startsWith('-')).slice(1);
+      let text = pipeIn;
+      if (text === null && fileArgs.length) text = fileArgs.map(f => getNode(resolvePath(f))?.content||'').join('\n');
+      if (text === null) return 'grep: no input';
+      const re = new RegExp(pat, iF ? 'gi' : 'g');
+      return text.split('\n').map((l, i) => {
+        const m = vF ? !re.test(l) : re.test(l); re.lastIndex = 0;
+        return m ? (nF ? `${i+1}:${l}` : l) : null;
+      }).filter(x => x !== null).join('\n');
+    }
+
+    case 'wc': {
+      const src = pipeIn !== null ? pipeIn : (cleanArgs.find(a=>!a.startsWith('-')) ? getNode(resolvePath(cleanArgs.find(a=>!a.startsWith('-'))))?.content||'' : '');
+      const lines = src.split('\n').length, words = src.split(/\s+/).filter(w=>w).length, chars = src.length;
+      if (cleanArgs.includes('-l')) return String(lines);
+      if (cleanArgs.includes('-w')) return String(words);
+      if (cleanArgs.includes('-c')) return String(chars);
+      return `${lines} ${words} ${chars}`;
+    }
+
+    case 'sort': {
+      const src = pipeIn !== null ? pipeIn : (cleanArgs.find(a=>!a.startsWith('-')) ? getNode(resolvePath(cleanArgs.find(a=>!a.startsWith('-'))))?.content||'' : '');
+      const ls = src.split('\n');
+      if (cleanArgs.includes('-n')) ls.sort((a,b) => parseFloat(a)-parseFloat(b));
+      else ls.sort((a,b) => a.localeCompare(b));
+      if (cleanArgs.includes('-r')) ls.reverse();
+      return ls.join('\n');
+    }
+
+    case 'uniq': return (pipeIn||'').split('\n').filter((l,i,a) => l !== a[i-1]).join('\n');
+
+    case 'cut': {
+      const src = pipeIn || '';
+      const di = cleanArgs.indexOf('-d'); const sep = di >= 0 ? cleanArgs[di+1] : '\t';
+      const fi = cleanArgs.indexOf('-f'); const field = fi >= 0 ? parseInt(cleanArgs[fi+1])-1 : 0;
+      return src.split('\n').map(l => l.split(sep)[field]||'').join('\n');
+    }
+
+    case 'head': {
+      const n = parseInt(cleanArgs[cleanArgs.indexOf('-n')+1]) || 10;
+      const src = pipeIn !== null ? pipeIn : getNode(resolvePath(cleanArgs.find(a=>!a.startsWith('-'))))?.content || '';
+      return src.split('\n').slice(0, n).join('\n');
+    }
+
+    case 'tail': {
+      const n = parseInt(cleanArgs[cleanArgs.indexOf('-n')+1]) || 10;
+      const src = pipeIn !== null ? pipeIn : getNode(resolvePath(cleanArgs.find(a=>!a.startsWith('-'))))?.content || '';
+      return src.split('\n').slice(-n).join('\n');
+    }
+
+    case 'sed': {
+      const src = pipeIn !== null ? pipeIn : getNode(resolvePath(cleanArgs.find(a=>!a.startsWith('-'))?.slice(1)))?.content || '';
+      const expr = cleanArgs.find(a=>!a.startsWith('-')) || '';
+      const m = expr.match(/^s\/(.+?)\/(.*)\/([gi]*)$/);
+      if (m) return src.replace(new RegExp(m[1], m[3]||'g'), m[2]);
+      return src;
+    }
+
+    case 'awk': {
+      const src = pipeIn || '';
+      const prog = cleanArgs.find(a=>!a.startsWith('-')) || '';
+      const pm = prog.match(/^\{print \$(\d+)\}$/);
+      if (pm) return src.split('\n').map(l=>l.trim().split(/\s+/)[parseInt(pm[1])-1]||'').join('\n');
+      return src;
+    }
+
+    case 'tr': {
+      const src = pipeIn || '';
+      if (cleanArgs.includes('-d')) { const set=cleanArgs.find(a=>!a.startsWith('-')); return src.split('').filter(c=>!set.includes(c)).join(''); }
+      const s1=cleanArgs[cleanArgs.length-2]||'', s2=cleanArgs[cleanArgs.length-1]||'';
+      return src.split('').map(c=>{const i=s1.indexOf(c);return i>=0&&s2[i]?s2[i]:c;}).join('');
+    }
+
+    case 'less': {
+      const src = pipeIn !== null ? pipeIn : getNode(resolvePath(cleanArgs[0]))?.content;
+      if (!src) return cleanArgs[0]?`${cleanArgs[0]}: No such file or directory`:'less: no input';
+      return src.split('\n').slice(0,40).join('\n') + (src.split('\n').length>40?'\n[...truncated]':'');
+    }
+
+    case 'diff': {
+      if (cleanArgs.length < 2) return 'diff: missing operand';
+      const a = getNode(resolvePath(cleanArgs[0])), b = getNode(resolvePath(cleanArgs[1]));
+      if (!a) return `diff: ${cleanArgs[0]}: No such file or directory`;
+      if (!b) return `diff: ${cleanArgs[1]}: No such file or directory`;
+      const al = a.content.split('\n'), bl = b.content.split('\n'), res = [];
+      for (let i = 0; i < Math.max(al.length, bl.length); i++) {
+        if (al[i] !== bl[i]) { if (al[i]) res.push(`< ${al[i]}`); if (bl[i]) res.push(`> ${bl[i]}`); }
+      }
+      return res.length ? res.join('\n') : 'Files are identical';
+    }
+
+    case 'stat': {
+      if (!cleanArgs.length) return 'stat: missing operand';
+      const p = resolvePath(cleanArgs[0]); const node = getNode(p);
+      if (!node) return `stat: cannot stat '${cleanArgs[0]}': No such file or directory`;
+      return `  File: ${p}\n  Size: ${node.size||0}\t\tBlocks: ${Math.ceil((node.size||0)/512)}\tIO Block: 4096  ${node.type}\nAccess: ${node.perm||'-rw-r--r--'}  Uid: (1000/${node.owner})\nModify: ${node.mtime||'(unknown)'}`;
+    }
+
+    case 'file': {
+      if (!cleanArgs.length) return 'file: missing operand';
+      const p = resolvePath(cleanArgs[0]); const node = getNode(p);
+      if (!node) return `file: ${cleanArgs[0]}: No such file or directory`;
+      if (node.type==='dir') return `${cleanArgs[0]}: directory`;
+      if (node.content==='ELF binary') return `${cleanArgs[0]}: ELF 64-bit LSB pie executable, x86-64`;
+      if (cleanArgs[0].endsWith('.sh')) return `${cleanArgs[0]}: Bourne-Again shell script, ASCII text executable`;
+      if (cleanArgs[0].endsWith('.py')) return `${cleanArgs[0]}: Python script, ASCII text executable`;
+      return `${cleanArgs[0]}: ASCII text`;
+    }
+
+    case 'which': return cleanArgs.map(c => ALL_CMDS.includes(c) ? `/usr/bin/${c}` : `which: ${c}: not found`).join('\n');
+    case 'whereis': return `${cleanArgs[0]}: /usr/bin/${cleanArgs[0]} /usr/share/man/man1/${cleanArgs[0]}.1.gz`;
+
+    case 'chmod': {
+      if (cleanArgs.length < 2) return 'chmod: missing operand';
+      const p = resolvePath(cleanArgs[cleanArgs.length-1]); const node = getNode(p);
+      if (!node) return `chmod: cannot access '${cleanArgs[cleanArgs.length-1]}': No such file or directory`;
+      const mode = cleanArgs[cleanArgs.length-2];
+      if (/^\d{3,4}$/.test(mode)) {
+        const bits = parseInt(mode, 8); const t = node.type==='dir'?'d':'-';
+        node.perm = t + [(bits>>6)&7,(bits>>3)&7,bits&7].map(b=>(b&4?'r':'-')+(b&2?'w':'-')+(b&1?'x':'-')).join('');
+      }
+      return null;
+    }
+
+    case 'chown': return null;
+    case 'umask': return '0022';
+
+    case 'ln': {
+      if (cleanArgs.length < 2) return 'ln: missing file operand';
+      const files = cleanArgs.filter(a=>!a.startsWith('-'));
+      const src = resolvePath(files[0]); const dst = resolvePath(files[1]);
+      const srcNode = getNode(src);
+      if (!srcNode) return `ln: failed to access '${files[0]}': No such file or directory`;
+      const { parent, name } = getParentAndName(dst);
+      if (!parent) return `ln: failed to create link: No such file or directory`;
+      parent.children[name] = cleanArgs.includes('-s')
+        ? { type: 'link', perm: 'lrwxrwxrwx', owner: user, target: src, content: '', size: src.length, mtime: fmtDate() }
+        : srcNode;
+      return null;
+    }
+
+    case 'ps': {
+      if (cleanArgs.some(a => a.includes('aux') || a.includes('ef'))) {
+        return `USER       PID %CPU %MEM VSZ   RSS TTY   STAT COMMAND\nroot         1  0.0  0.1 168356 13200 ?  Ss   /sbin/init\nroot       420  0.0  0.0  72296  6400 ?  Ss   /usr/sbin/sshd\n${user}      999  0.1  0.1  20720  5200 pts/0 Ss  /bin/bash\n${user}     ${Math.floor(Math.random()*9000+1000)}  0.0  0.0   8836  1000 pts/0 R+  ps`;
+      }
+      return `  PID TTY          TIME CMD\n    1 ?        00:00:01 systemd\n  420 ?        00:00:00 sshd\n  999 pts/0    00:00:00 bash`;
+    }
+
+    case 'top': return `top - ${new Date().toTimeString().slice(0,8)} up 2:34, 1 user, load average: 0.15, 0.12, 0.10\nTasks: 142 total,   1 running\n%Cpu(s):  2.3 us,  0.5 sy, 96.8 id\nMiB Mem:   8000.0 total, 2048.0 free, 4096.0 used\n\n  PID USER  PR NI  VIRT  RES  SHR S %CPU %MEM COMMAND\n  999 ${user}  20  0 20720 5200 3800 S  0.3  0.1 bash\n    1 root  20  0 168356 13200 10400 S  0.0  0.2 systemd`;
+
+    case 'kill': {
+      if (!cleanArgs.length) return 'kill: usage: kill [-s sigspec] pid';
+      const pid = cleanArgs.filter(a=>!a.startsWith('-')).pop();
+      if (pid === '1') return 'bash: kill: (1) - Operation not permitted';
+      return `kill: (${pid}) - No such process`;
+    }
+
+    case 'df': return `Filesystem     1K-blocks    Used Available Use% Mounted on\n/dev/sda1       41943040 8388608  33554432  20% /\ntmpfs            4194304       0   4194304   0% /dev/shm`;
+
+    case 'du': {
+      const p = resolvePath(cleanArgs.find(a=>!a.startsWith('-')) || cwd);
+      const node = getNode(p); if (!node) return `du: cannot access: No such file or directory`;
+      function sz(n) { return n.type!=='dir' ? n.size||0 : Object.values(n.children||{}).reduce((s,c)=>s+sz(c),4096); }
+      const s = sz(node); return `${cleanArgs.includes('-h')?fmtSize(s):Math.ceil(s/1024)}\t${p}`;
+    }
+
+    case 'free': {
+      if (cleanArgs.includes('-h')) return `              total  used  free  shared  buff/cache  available\nMem:           7.8G  4.0G  2.0G    128M       1.8G       3.8G\nSwap:          2.0G    0B  2.0G`;
+      return `              total    used    free  shared  buff/cache  available\nMem:        8192000 4096000 2048000  131072     2048000    3965928\nSwap:       2097152       0 2097152`;
+    }
+
+    case 'env': return pipeIn !== null ? pipeIn : Object.entries(envVars).map(([k,v]) => `${k}=${v}`).join('\n');
+    case 'export': { cleanArgs.forEach(a => { const [k,...vp]=a.split('='); if(vp.length) envVars[k]=expandVars(vp.join('=')); }); return null; }
+    case 'unset': { cleanArgs.forEach(a => delete envVars[a]); return null; }
+
+    case 'alias': {
+      if (!cleanArgs.length) return Object.entries(aliases).map(([k,v])=>`alias ${k}='${v}'`).join('\n');
+      cleanArgs.forEach(a => { const [k,...vp]=a.split('='); if(vp.length) aliases[k]=vp.join('=').replace(/^['"]|['"]$/g,''); });
+      return null;
+    }
+    case 'unalias': { cleanArgs.forEach(a => delete aliases[a]); return null; }
+    case 'history': return history.map((h,i) => `  ${i+1}  ${h}`).join('\n');
+
+    case 'ping': {
+      const host = cleanArgs.find(a=>!a.startsWith('-')) || 'localhost';
+      const count = parseInt(cleanArgs[cleanArgs.indexOf('-c')+1]) || 4;
+      return [`PING ${host} (127.0.0.1): 56 data bytes`,
+        ...Array.from({length:count},(_,i)=>`64 bytes from 127.0.0.1: icmp_seq=${i} ttl=64 time=${(Math.random()*2+0.5).toFixed(3)} ms`),
+        `\n--- ${host} ping statistics ---\n${count} packets transmitted, ${count} received, 0% packet loss`].join('\n');
+    }
+
+    case 'ifconfig': case 'ip':
+      return `eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n        inet 192.168.1.100  netmask 255.255.255.0  broadcast 192.168.1.255\n        inet6 fe80::1  prefixlen 64\n        ether 02:42:ac:11:00:02\n        RX packets 12834  bytes 18294832 (18.2 MB)\n        TX packets 9423  bytes 1492384 (1.4 MB)\n\nlo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536\n        inet 127.0.0.1  netmask 255.0.0.0`;
+
+    case 'netstat':
+      return `Active Internet connections\nProto Local Address           Foreign Address    State\ntcp   0.0.0.0:22              0.0.0.0:*          LISTEN\ntcp   0.0.0.0:80              0.0.0.0:*          LISTEN`;
+
+    case 'curl': {
+      const url = cleanArgs.find(a=>!a.startsWith('-'));
+      if (!url) return 'curl: try \'curl --help\'';
+      if (url.includes('localhost')||url.includes('127.0.0.1')) return '{"status":"ok","message":"Hello from localhost!"}';
+      return `curl: (6) Could not resolve host: ${url}\n[Note: Network access is simulated]`;
+    }
+
+    case 'wget': {
+      const url = cleanArgs.find(a=>!a.startsWith('-'));
+      if (!url) return 'wget: missing URL';
+      const fname = url.split('/').pop() || 'index.html';
+      const { parent, name } = getParentAndName(resolvePath(fname));
+      if (parent) parent.children[fname] = { type:'file', perm:'-rw-r--r--', owner:user, content:`[Downloaded from ${url}]`, size:42, mtime:fmtDate() };
+      return `Saving to: '${fname}'\n${fname} [===================>] simulated\n'${fname}' saved`;
+    }
+
+    case 'tar': return `tar: ${cleanArgs.join(' ')} (simulated)`;
+    case 'gzip': return `gzip: ${cleanArgs[0]} compressed (simulated)`;
+    case 'gunzip': return `gunzip: ${cleanArgs[0]} decompressed (simulated)`;
+
+    case 'base64': {
+      const src = pipeIn !== null ? pipeIn : getNode(resolvePath(cleanArgs.find(a=>!a.startsWith('-'))))?.content || '';
+      if (cleanArgs.includes('-d')) { try { return atob(src.trim()); } catch(e) { return 'base64: invalid input'; } }
+      return btoa(src);
+    }
+
+    case 'md5sum': { const s=pipeIn||''; let h=0; for(const c of s) h=Math.imul(31,h)+c.charCodeAt(0)|0; return (Math.abs(h)>>>0).toString(16).padStart(32,'0')+'  -'; }
+    case 'sha256sum': { const s=pipeIn||''; let h=0; for(const c of s) h=Math.imul(17,h)+c.charCodeAt(0)|0; return (Math.abs(h)>>>0).toString(16).padStart(64,'0')+'  -'; }
+
+    case 'xxd': {
+      const src = pipeIn !== null ? pipeIn : getNode(resolvePath(cleanArgs[0]))?.content || '';
+      const lines = []; for (let i=0; i<Math.min(src.length,64); i+=16) {
+        const chunk=src.slice(i,i+16);
+        lines.push(`${i.toString(16).padStart(8,'0')}: ${chunk.split('').map(c=>c.charCodeAt(0).toString(16).padStart(2,'0')).join(' ').padEnd(47)}  ${chunk.replace(/[^\x20-\x7e]/g,'.')}`);
+      }
+      if (src.length > 64) lines.push('...');
+      return lines.join('\n');
+    }
+
+    case 'seq': {
+      const n = cleanArgs.map(Number);
+      if (n.length===1) return Array.from({length:n[0]},(_,i)=>i+1).join('\n');
+      if (n.length===2) { const r=[]; for(let i=n[0];i<=n[1];i++) r.push(i); return r.join('\n'); }
+      const r=[]; for(let i=n[0];i<=n[2];i+=n[1]) r.push(+i.toFixed(10)); return r.join('\n');
+    }
+
+    case 'bc': { try { return String(Function('"use strict";return ('+( pipeIn||cleanArgs.join(' '))+')')()); } catch(e) { return `bc: ${e.message}`; } }
+    case 'expr': { try { return String(Function('"use strict";return ('+cleanArgs.join(' ')+')')()); } catch(e) { return `expr: ${e.message}`; } }
+    case 'test': case 'true': case 'false': case 'sleep': case 'jobs': return null;
+    case 'yes': return 'y\ny\ny\n[...Ctrl+C to stop]';
+    case 'strings': { const src=getNode(resolvePath(cleanArgs[0]))?.content||''; return src.replace(/[^\x20-\x7e\n]/g,'').split('\n').filter(l=>l.length>=4).join('\n'); }
+    case 'lsof': return `COMMAND  PID  USER FD TYPE DEVICE NODE NAME\nbash     999  ${user} cwd  DIR    8,1 1234 ${cwd}\nbash     999  ${user} txt  REG    8,1 5678 /usr/bin/bash`;
+    case 'tee': { if(pipeIn!==null&&cleanArgs[0]){const p=resolvePath(cleanArgs[0]);const{parent,name}=getParentAndName(p);if(parent)parent.children[name]={type:'file',perm:'-rw-r--r--',owner:user,content:pipeIn,size:pipeIn.length,mtime:fmtDate()};} return pipeIn; }
+    case 'w': return ` ${new Date().toTimeString().slice(0,5)} up 2:34, 1 user\nUSER     TTY FROM  LOGIN@  IDLE WHAT\n${user}  pts/0 - 09:00  0.00s w`;
+    case 'who': return `${user}   pts/0        ${new Date().toLocaleDateString()} 09:00`;
+    case 'last': return `${user}  pts/0  :0  ${new Date().toLocaleDateString()} 09:00  still logged in`;
+    case 'date': return new Date().toString();
+
+    case 'apt': {
+      const sub=cleanArgs[0], pkg=cleanArgs[1];
+      if (sub==='install') {
+        if (!pkg) return 'apt: no package specified';
+        if (installedPkgs.includes(pkg)) return `${pkg} is already the newest version.`;
+        installedPkgs.push(pkg);
+        return `Reading package lists... Done\nBuilding dependency tree... Done\nThe following NEW packages will be installed:\n  ${pkg}\nSetting up ${pkg} ... Done`;
+      }
+      if (sub==='update') return 'Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease\nAll packages are up to date.';
+      if (sub==='list') return installedPkgs.map(p=>`${p}/jammy,now installed`).join('\n');
+      if (sub==='remove') { installedPkgs=installedPkgs.filter(p=>p!==pkg); return `Removing ${pkg}... Done`; }
+      return 'Usage: apt [install|update|remove|list] [package]';
+    }
+
+    case 'cal': {
+      const d=new Date(), m=d.getMonth(), y=d.getFullYear();
+      const mn=['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const first=new Date(y,m,1).getDay(), last=new Date(y,m+1,0).getDate();
+      let out=`   ${mn[m]} ${y}\nSu Mo Tu We Th Fr Sa\n`;
+      let row=Array(first).fill('  ');
+      for(let i=1;i<=last;i++){row.push(String(i).padStart(2));if(row.length===7){out+=row.join(' ')+'\n';row=[];}}
+      if(row.length) out+=row.join(' ')+'\n';
+      return out;
+    }
+
+    case 'nano': case 'vim': case 'vi': {
+      const f = cleanArgs.find(a=>!a.startsWith('-'));
+      if (!f) return `${cmd}: No file name`;
+      const rp = resolvePath(f);
+      const node = getNode(rp);
+      setTimeout(() => showNanoEditor(f, rp, node?.content||''), 50);
+      return null;
+    }
+
+    case 'man': {
+      const topic = cleanArgs[0];
+      const pages = {
+        ls: 'LS(1)\n\nNAME\n  ls - list directory contents\n\nSYNOPSIS\n  ls [OPTION]... [FILE]...\n\nOPTIONS\n  -a  show hidden files\n  -l  long listing format\n  -h  human-readable sizes',
+        grep: 'GREP(1)\n\nNAME\n  grep - search for patterns\n\nSYNOPSIS\n  grep [OPTIONS] PATTERN [FILE]...\n\nOPTIONS\n  -i  ignore case\n  -v  invert match\n  -n  show line numbers\n  -r  recursive',
+        cd: 'CD(1)\n\nNAME\n  cd - change directory\n\nSYNOPSIS\n  cd [DIR]\n\nDESCRIPTION\n  Change working directory. Default is $HOME.',
+        cat: 'CAT(1)\n\nNAME\n  cat - concatenate and print files\n\nSYNOPSIS\n  cat [FILE]...',
+        find: 'FIND(1)\n\nNAME\n  find - search for files\n\nSYNOPSIS\n  find [path] [expression]\n\nOPTIONS\n  -name pattern\n  -type f|d',
+        chmod: 'CHMOD(1)\n\nNAME\n  chmod - change file permissions\n\nSYNOPSIS\n  chmod MODE FILE\n\nEXAMPLES\n  chmod 755 script.sh\n  chmod 644 file.txt',
+        apt: 'APT(8)\n\nNAME\n  apt - package manager\n\nUSAGE\n  apt install|update|remove|list [package]'
+      };
+      return pages[topic] || `No manual entry for ${topic}`;
+    }
+
+    case 'help':
+      return `Linux Terminal Simulator v2.0 — Commands\n\n[FILESYSTEM]\n  ls [-lah]  cd  pwd  mkdir [-p]  rmdir  touch  cat  cp  mv  rm [-rf]\n  find  tree  stat  file  ln [-s]  diff  chmod  chown  umask\n\n[TEXT PROCESSING]\n  grep [-ivn]  wc [-lwc]  sort [-rn]  uniq  cut  head  tail\n  less  sed  awk  tr  tee  xargs\n\n[SHELL]\n  echo  printf  export  unset  env  alias  unalias  history\n  !!, pipes (|), redirect (>, >>), glob (*)\n\n[SYSTEM]\n  ps  top  kill  df  du  free  uname  uptime  date  cal\n  whoami  hostname  id  groups  w  who  last\n\n[NETWORK (simulated)]\n  ping  ifconfig  ip  netstat  curl  wget\n\n[ARCHIVE/CRYPTO]\n  tar  gzip  gunzip  base64  md5sum  sha256sum  xxd  strings\n\n[PACKAGES]\n  apt install|update|remove|list\n\n[EDITOR]\n  nano / vim  (Ctrl+X to save & exit)\n\n[FUN]\n  fortune  cowsay  sl  cmatrix  banner  figlet\n\n[META]\n  man <cmd>  help  clear  exit`;
+
+    case 'sudo': {
+      const sub = cleanArgs[0];
+      if (sub === 'rm' && cleanArgs.includes('-rf') && (cleanArgs.includes('/') || cleanArgs.includes('/*'))) return '🛡️ Protected! rm -rf / is blocked in this simulator.';
+      return `[sudo] password for ${user}:\nSorry, user ${user} is not in the sudoers file. This incident will be reported.`;
+    }
+    case 'su': return 'Password:\nAuthentication failure';
+    case 'passwd': return `Changing password for ${user}.\npasswd: Authentication token manipulation error`;
+
+    case 'fortune': {
+      const quotes = ['In Unix, no one can hear you scream.','To iterate is human, to recurse divine.','There is no place like 127.0.0.1','sudo make me a sandwich.','grep is the Swiss Army knife of text processing.','The shell is your friend. Most of the time.','rm -rf /: an interesting error recovery experience.','UNIX is user-friendly. It just chooses its friends carefully.'];
+      return quotes[Math.floor(Math.random() * quotes.length)];
+    }
+
+    case 'cowsay': {
+      const msg = cleanArgs.join(' ') || 'Moo!';
+      const bar = '_'.repeat(msg.length + 2);
+      return ` ${bar}\n< ${msg} >\n ${'-'.repeat(msg.length + 2)}\n        \\   ^__^\n         \\  (oo)\\_______\n            (__)\\       )\\/\\\n                ||----w |\n                ||     ||`;
+    }
+
+    case 'banner': case 'figlet': {
+      const txt = cleanArgs.join(' ').toUpperCase();
+      return txt.split('').join('  ') + '\n' + '#'.repeat(txt.length * 3);
+    }
+
+    case 'sl':
+      return `      ====        ________                ___________\n  _D _|  |_______/        \\__I_I_____===__|_______|\n   |(_)---  |   H\\________/ |   |        =|___ ___|      ___\n   /     |  |   H  |  |     |   |         ||_| |_||     _|\n  |      |  |   H  |__--------------------| [___] |   =|\n  |______|__|___H__/__|_____/[][]~\\_______|       |   -|`;
+
+    case 'cmatrix': {
+      const chars = 'ｦｧｨｩｪｫｬｭｮｯｰｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉ01'.split('');
+      return Array.from({length:8}, () => Array.from({length:60}, ()=>chars[Math.floor(Math.random()*chars.length)]).join('')).join('\n') + '\n[Press Ctrl+C to exit]';
+    }
+
+    default:
+      if (cmd.startsWith('./') || (cmd.startsWith('/') && !cmd.startsWith('//'))) {
+        const p = resolvePath(cmd); const node = getNode(p);
+        if (!node) return `bash: ${cmd}: No such file or directory`;
+        if (node.type === 'dir') return `bash: ${cmd}: Is a directory`;
+        if (!node.perm || !node.perm.includes('x')) return `bash: ${cmd}: Permission denied`;
+        return `[Executing ${cmd}... simulated]`;
+      }
+      return `bash: ${cmd}: command not found`;
+  }
+}
+
+// ── Tab Completion ───────────────────────────────────────────────────────────
+function tabComplete() {
+  const inp = document.getElementById('cmd-input');
+  const val = inp.value;
+  const parts = tokenize(val);
+  const isFirstWord = parts.length === 1 && !val.endsWith(' ');
+  const lastWord = val.endsWith(' ') ? '' : (parts[parts.length - 1] || '');
+
+  if (isFirstWord) {
+    const matches = ALL_CMDS.filter(c => c.startsWith(lastWord));
+    if (matches.length === 1) inp.value = matches[0] + ' ';
+    else if (matches.length > 1) { appendPromptLine(val); appendHTML('<span>' + matches.join('  ') + '</span>'); }
+    return;
+  }
+
+  const dirPart = lastWord.includes('/') ? lastWord.substring(0, lastWord.lastIndexOf('/') + 1) : '';
+  const filePart = lastWord.includes('/') ? lastWord.substring(lastWord.lastIndexOf('/') + 1) : lastWord;
+  const baseDir = dirPart ? resolvePath(dirPart) : cwd;
+  const node = getNode(baseDir);
+  if (!node || node.type !== 'dir') return;
+  const matches = Object.keys(node.children).filter(n => n.startsWith(filePart));
+  if (matches.length === 1) {
+    const m = matches[0]; const isDir = node.children[m].type === 'dir';
+    inp.value = val.slice(0, -filePart.length) + dirPart + m + (isDir ? '/' : ' ');
+  } else if (matches.length > 1) {
+    appendPromptLine(val); appendHTML('<span>' + matches.join('  ') + '</span>');
+  }
+}
+
+// ── Suggestion ───────────────────────────────────────────────────────────────
+function updateSuggestion() {
+  const val = document.getElementById('cmd-input').value;
+  const sEl = document.getElementById('suggest-text');
+  if (!val) { sEl.textContent = ''; return; }
+  const histMatch = history.filter(h => h.startsWith(val) && h !== val);
+  const cmdMatch = val.split(' ').length === 1 ? ALL_CMDS.filter(c => c.startsWith(val)) : [];
+  const suggestion = histMatch[histMatch.length - 1] || cmdMatch[0] || '';
+  sEl.textContent = suggestion.startsWith(val) ? suggestion : '';
+}
+
+// ── Nano Editor ──────────────────────────────────────────────────────────────
+function showNanoEditor(filename, rpath, initialContent) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:#0a0a0a;z-index:100;display:flex;flex-direction:column;font-family:monospace;font-size:13px;';
+  const th = THEMES[currentTheme];
+  overlay.innerHTML = `
+    <div style="background:#333;color:#fff;padding:4px 12px;display:flex;justify-content:space-between;flex-shrink:0;">
+      <span>GNU nano 6.2 — ${filename}</span><span style="color:#aaa">[Modified]</span>
+    </div>
+    <textarea id="nano-ta" style="flex:1;background:#0a0a0a;color:${th.fg};border:none;outline:none;padding:10px;font-family:monospace;font-size:13px;resize:none;line-height:1.5;">${escH(initialContent)}</textarea>
+    <div style="background:#222;color:#ccc;padding:4px 12px;font-size:11px;">^X Save+Exit  ^S Save  — Ctrl+X or Ctrl+S to save</div>`;
+  document.body.appendChild(overlay);
+  const ta = document.getElementById('nano-ta');
+  ta.focus();
+  ta.addEventListener('keydown', e => {
+    if (e.ctrlKey && (e.key === 'x' || e.key === 'X' || e.key === 's' || e.key === 'S')) {
+      e.preventDefault();
+      const content = ta.value;
+      const { parent, name } = getParentAndName(rpath);
+      if (parent) parent.children[name] = { type:'file', perm:'-rw-r--r--', owner:user, content, size:content.length, mtime:fmtDate() };
+      overlay.remove();
+      if (e.key === 'x' || e.key === 'X') appendLine(`[Saved ${filename}]`, 'success');
+      document.getElementById('cmd-input').focus();
+    }
+  });
+}
+
+// ── Logout Screen ─────────────────────────────────────────────────────────────
+function showLogout() {
+  document.getElementById('output').innerHTML = '';
+  appendLine('logout', 'dim');
+  appendLine('');
+  appendLine('Connection to linux-sim closed.', 'dim');
+  appendLine('');
+  appendLine('  ┌───────────────────────────────────────┐', 'dim');
+  appendLine('  │   Session ended. Reloading in 4s...   │', 'dim');
+  appendLine('  └───────────────────────────────────────┘', 'dim');
+  document.getElementById('cmd-input').disabled = true;
+  setTimeout(() => {
+    document.getElementById('cmd-input').disabled = false;
+    document.getElementById('cmd-input').value = '';
+    cwd = '/home/user'; updatePrompt();
+    document.getElementById('output').innerHTML = '';
+    showWelcome();
+    document.getElementById('cmd-input').focus();
+  }, 4000);
+}
+
+// ── Toggle Help ───────────────────────────────────────────────────────────────
+function toggleHelp() {
+  helpVisible = !helpVisible;
+  document.getElementById('help-panel').style.display = helpVisible ? '' : 'none';
+  document.getElementById('btn-help-toggle').classList.toggle('active', helpVisible);
+}
+
+function insertKey(k) {
+  const inp = document.getElementById('cmd-input');
+  if (k === 'Tab') { tabComplete(); }
+  else if (k === 'ArrowUp') { if (histIdx > 0) { histIdx--; inp.value = history[histIdx] || ''; } }
+  else if (k === 'ArrowDown') { if (histIdx < history.length-1) { histIdx++; inp.value = history[histIdx]||''; } else { histIdx=history.length; inp.value=''; } }
+  else if (k === 'Ctrl+C') { appendLine('^C'); inp.value = ''; }
+  else if (k === 'Ctrl+L') { document.getElementById('output').innerHTML = ''; }
+  else { const pos=inp.selectionStart; inp.value=inp.value.slice(0,pos)+k+inp.value.slice(inp.selectionEnd); inp.selectionStart=inp.selectionEnd=pos+k.length; }
+  inp.focus(); updateSuggestion();
+}
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+function saveState() {
+  try { localStorage.setItem('term_history', JSON.stringify(history.slice(-500))); } catch(e) {}
+}
+function loadState() {
+  try { const h = localStorage.getItem('term_history'); if (h) { history = JSON.parse(h); histIdx = history.length; } } catch(e) {}
+  try { const t = localStorage.getItem('term_theme'); if (t) currentTheme = t; } catch(e) {}
+}
+
+// ── Welcome ───────────────────────────────────────────────────────────────────
+function showWelcome() {
+  const th = THEMES[currentTheme];
+  appendHTML(`<span style="color:${th.prompt}">
+  ██╗     ██╗███╗   ██╗██╗   ██╗██╗  ██╗
+  ██║     ██║████╗  ██║██║   ██║╚██╗██╔╝
+  ██║     ██║██╔██╗ ██║██║   ██║ ╚███╔╝
+  ██║     ██║██║╚██╗██║██║   ██║ ██╔██╗
+  ███████╗██║██║ ╚████║╚██████╔╝██╔╝ ██╗
+  ╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝
+</span>`);
+  appendLine('Linux Terminal Simulator v2.0  |  Ubuntu 22.04.3 LTS (Jammy Jellyfish)', 'info');
+  appendLine('Kernel 5.15.0-91-generic  |  bash 5.2.15  |  Type \'help\' for commands', 'dim');
+  appendLine('');
+  const tips = ['Tip: Tab for autocomplete', 'Tip: !! repeats last command', 'Tip: Try cmatrix or sl for fun!', 'Tip: Pipes work! Try: ls | grep txt', 'Tip: Use > to redirect output to files', 'Tip: nano file.txt opens the editor'];
+  appendLine(tips[Math.floor(Math.random() * tips.length)], 'warn');
+  appendLine('');
+}
+
+// ── Event Listeners ───────────────────────────────────────────────────────────
+document.getElementById('cmd-input').addEventListener('keydown', e => {
+  const inp = document.getElementById('cmd-input');
+  if (e.key === 'Enter') {
+    const val = inp.value; inp.value = ''; document.getElementById('suggest-text').textContent = '';
+    if (val.trim()) runCommand(val); else appendPromptLine('');
+    histIdx = history.length;
+  } else if (e.key === 'Tab') {
+    e.preventDefault(); tabComplete();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault(); if (histIdx > 0) { histIdx--; inp.value = history[histIdx] || ''; updateSuggestion(); }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (histIdx < history.length - 1) { histIdx++; inp.value = history[histIdx] || ''; }
+    else { histIdx = history.length; inp.value = ''; }
+    updateSuggestion();
+  } else if (e.key === 'ArrowRight') {
+    const sEl = document.getElementById('suggest-text');
+    if (inp.selectionStart === inp.value.length && sEl.textContent) { inp.value = sEl.textContent; sEl.textContent = ''; e.preventDefault(); }
+  } else if (e.ctrlKey && e.key === 'c') {
+    e.preventDefault(); appendLine('^C'); inp.value = ''; document.getElementById('suggest-text').textContent = '';
+  } else if (e.ctrlKey && e.key === 'l') {
+    e.preventDefault(); document.getElementById('output').innerHTML = '';
+  } else if (e.ctrlKey && e.key === 'd') {
+    e.preventDefault(); showLogout();
+  } else if (e.ctrlKey && e.key === 'a') {
+    e.preventDefault(); inp.setSelectionRange(0, 0);
+  } else if (e.ctrlKey && e.key === 'e') {
+    e.preventDefault(); inp.setSelectionRange(inp.value.length, inp.value.length);
+  }
+});
+
+document.getElementById('cmd-input').addEventListener('input', updateSuggestion);
+document.getElementById('terminal-wrapper').addEventListener('click', () => document.getElementById('cmd-input').focus());
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadState();
+setTheme(currentTheme);
+showWelcome();
+updatePrompt();
+document.getElementById('cmd-input').focus();
+</script>
+</body>
+</html>
